@@ -1,0 +1,30 @@
+# Entorno virtual
+venv/
+.venv/
+env/
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Archivos de distribución
+build/
+dist/
+*.egg-info/
+
+# Configuración de editores
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Variables de entorno
+.env
+
+# Archivos temporales
+*.log
+
+output/

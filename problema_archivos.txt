@@ -1,0 +1,119 @@
+# Problema encontrado con Flet 0.85.3
+
+El problema fue que estaba mezclando código de distintas versiones de Flet.
+
+## 1. `FilePicker.pick_files()` ahora es asíncrono
+
+En Flet 0.85.3, `pick_files()` es una corrutina (`async`), por lo que **debe llamarse con `await`**.
+
+Incorrecto:
+
+```python
+on_click=lambda e: file_picker.pick_files()
+```
+
+Correcto:
+
+```python
+async def seleccionar(e):
+    archivos = await file_picker.pick_files()
+
+ft.Button(
+    "Seleccionar",
+    on_click=seleccionar,
+)
+```
+
+Si no se usa `await`, aparece el error:
+
+```
+RuntimeWarning: coroutine 'FilePicker.pick_files' was never awaited
+```
+
+y el selector de archivos nunca se abre.
+
+---
+
+## 2. `main()` debe ser asíncrono
+
+Cuando se utilizan controles o servicios asíncronos, es recomendable declarar:
+
+```python
+async def main(page: ft.Page):
+    ...
+```
+
+en lugar de
+
+```python
+def main(page: ft.Page):
+    ...
+```
+
+---
+
+## 3. `FilePicker` ya no se agrega al `overlay`
+
+En la API moderna de Flet, `FilePicker` es un **servicio**, no un control visual.
+
+Incorrecto:
+
+```python
+page.overlay.append(file_picker)
+```
+
+Correcto:
+
+```python
+page.services.append(file_picker)
+```
+
+---
+
+## 4. No usar `threading` + `page.after()`
+
+Muchos ejemplos antiguos hacen esto:
+
+```python
+threading.Thread(...)
+page.after(...)
+```
+
+En Flet 0.85.x ese patrón ya no es el recomendado.
+
+La forma moderna es:
+
+```python
+resultado = await asyncio.to_thread(funcion_lenta)
+```
+
+Esto ejecuta la función en un hilo sin bloquear la interfaz y sin necesidad de usar `threading` manualmente.
+
+---
+
+## 5. No mezclar documentación antigua con la nueva
+
+En Internet existen ejemplos para Flet 0.2x, 0.3x, 0.7x, etc.
+
+La API cambió bastante, por lo que hay diferencias como:
+
+* `FilePicker(on_result=...)` → API antigua.
+* `page.overlay.append(...)` → API antigua.
+* `page.after(...)` → API antigua.
+* `await file_picker.pick_files(...)` → API nueva (0.85.x).
+
+Siempre verificar que el ejemplo corresponda a la misma versión instalada (`pip show flet`).
+
+---
+
+## Resumen
+
+Los errores no eran del código de la aplicación, sino de usar ejemplos de distintas versiones de Flet.
+
+Para Flet 0.85.3 se debe usar:
+
+* `async def main(...)`
+* `await file_picker.pick_files(...)`
+* `page.services.append(file_picker)`
+* `asyncio.to_thread(...)` para tareas pesadas
+* Evitar `threading` y `page.after()` salvo que exista una necesidad muy específica.
