@@ -7,39 +7,82 @@ import pandas as pd
 from pypdf import PdfReader
 
 
-def extract_data_from_pdf(pdf_path: Path) -> pd.DataFrame:
+def extract_invoice_data(pdf_path: Path) -> Dict[str, Any]:
     """
-    Lee un archivo PDF y extrae los datos de texto de forma estructurada.
-    Modifica las expresiones regulares según el formato real de tus PDFs.
+    Analiza el texto de una factura en PDF y extrae de forma inteligente:
+    Fecha, Proveedor y Monto Total.
     """
     reader = PdfReader(pdf_path)
-    extracted_records = []
-
+    full_text = ""
+    
+    # Extraer todo el texto del PDF unificado
     for page in reader.pages:
         text = page.extract_text()
-        if not text:
-            continue
+        if text:
+            full_text += text + "\n"
             
-        # Ejemplo de procesamiento línea por línea
-        # Supongamos que buscamos líneas con un producto y un monto (ej: "Producto A - $1,200")
-        lines = text.split("\n")
-        for line in lines:
-            # Una expresión regular simple para buscar texto seguido de números/precios
-            match = re.search(r"([\w\s]+?)\s*[\$-]?\s*([\d\.,]+)", line)
-            if match:
-                product = match.group(1).strip()
-                amount_str = match.group(2).replace(",", "")
+    # Valores por defecto por si no se encuentra algo
+    vendor = "No detectado"
+    date = "No detectada"
+    total_amount = 0.0
+
+    # 1. EXTRAER PROVEEDOR (Usualmente las primeras líneas o antes de "Factura" / "RFC")
+    lines = [line.strip() for line in full_text.split("\n") if line.strip()]
+    if lines:
+        # Intentamos tomar la primera línea significativa como el nombre del Proveedor
+        for line in lines[:5]:
+            if not any(keyword in line.lower() for keyword in ["factura", "folio", "fecha", "receptor", "cliente", "rfc"]):
+                vendor = line
+                break
+
+    # 2. EXTRAER FECHA (Formatos comunes: DD/MM/AAAA, AAAA-MM-DD, etc.)
+    date_match = re.search(r"(\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b)|(\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)", full_text)
+    if date_match:
+        date = date_match.group(0)
+
+    # 3. EXTRAER MONTO TOTAL 
+    # Buscamos palabras clave de facturación y capturamos el número decimal más cercano
+    # Evitamos capturar IDs largos buscando números que tengan estructura de moneda (ej: 1,250.00 o 450.00)
+    keywords_total = [r"total", r"importe total", r"total a pagar", r"neto", r"monto total"]
+    
+    possible_amounts = []
+    
+    for line in full_text.split("\n"):
+        line_lower = line.lower()
+        if any(kw in line_lower for kw in keywords_total):
+            # Buscar montos con formato decimal (ej: 1,500.50 o 300.00)
+            amounts = re.findall(r"[\$-]?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2}))", line)
+            for amt in amounts:
                 try:
-                    amount = float(amount_str)
-                    extracted_records.append({"product": product, "amount": amount, "source_type": "PDF"})
+                    val = float(amt.replace(",", ""))
+                    # Filtro inteligente: Un ID de pago o calle suele no tener decimales o ser gigantesco.
+                    if 0.1 <= val < 99999999.0: 
+                        possible_amounts.append(val)
                 except ValueError:
                     continue
 
-    if not extracted_records:
-        # Fallback por si el PDF es plano o tiene otro formato
-        return pd.DataFrame(columns=["product", "amount", "source_type"])
-        
-    return pd.DataFrame(extracted_records)
+    if possible_amounts:
+        # Normalmente el total real es el valor más alto encontrado cerca de la palabra "Total"
+        total_amount = max(possible_amounts)
+    else:
+        # Búsqueda de emergencia en todo el texto si no se encontró con palabras clave
+        all_decimals = re.findall(r"[\$-]?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2}))", full_text)
+        valid_decimals = []
+        for amt in all_decimals:
+            try:
+                val = float(amt.replace(",", ""))
+                valid_decimals.append(val)
+            except ValueError:
+                pass
+        if valid_decimals:
+            total_amount = max(valid_decimals) # El monto más grande suele ser el Total
+
+    return {
+        "Archivo": pdf_path.name,
+        "Proveedor": vendor,
+        "Fecha": date,
+        "Monto Total": total_amount
+    }
 
 
 def process_input_file(input_path: str | Path, output_dir: str | Path | None = None) -> Dict[str, Any]:
@@ -54,53 +97,52 @@ def process_input_file(input_path: str | Path, output_dir: str | Path | None = N
     output_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = input_path.suffix.lower()
-    df_result = pd.DataFrame()
+    
+    # Lista donde acumularemos las filas del reporte
+    records = []
 
-    # --- PROCESAMIENTO DEPENDIENDO DEL TIPO ---
+    # --- PROCESAMIENTO EXCLUSIVO EXCEL O PDF ---
     if suffix in [".xlsx", ".xls"]:
+        # Si suben un Excel, asumimos que es una lista previa que quieren validar/acomodar
         df = pd.read_excel(input_path)
-        # Intentar estandarizar columnas si vienen con nombres distintos
-        df.columns = [c.lower().strip() for c in df.columns]
+        df.columns = [c.strip().title() for c in df.columns]
         
-        if "amount" in df.columns and "product" in df.columns:
-            df_result = df[["product", "amount"]].copy()
-            df_result["source_type"] = "Excel"
-            
-    elif suffix == ".csv":
-        df = pd.read_csv(input_path)
-        df.columns = [c.lower().strip() for c in df.columns]
-        if "amount" in df.columns and "product" in df.columns:
-            df_result = df[["product", "amount"]].copy()
-            df_result["source_type"] = "CSV"
+        # Estandarizar columnas requeridas
+        required = ["Proveedor", "Fecha", "Monto Total"]
+        for col in required:
+            if col not in df.columns:
+                df[col] = "No provisto" if col != "Monto Total" else 0.0
+                
+        # Limpiar montos
+        df["Monto Total"] = pd.to_numeric(df["Monto Total"], errors="coerce").fillna(0.0)
+        df["Archivo"] = input_path.name
+        records = df[["Archivo", "Proveedor", "Fecha", "Monto Total"]].to_dict(orient="records")
             
     elif suffix == ".pdf":
-        df_result = extract_data_from_pdf(input_path)
+        # Extraer los datos de la factura con las reglas inteligentes
+        invoice_data = extract_invoice_data(input_path)
+        records.append(invoice_data)
         
     else:
-        raise ValueError(format(f"Formato de archivo no soportado: {suffix}"))
+        raise ValueError(f"Formato no soportado ({suffix}). Por favor sube solo archivos PDF o Excel.")
 
-    if df_result.empty:
-        raise ValueError("No se pudieron extraer datos válidos del archivo proporcionado.")
+    if not records:
+        raise ValueError("No se pudieron extraer datos válidos del archivo.")
 
-    # Limpieza de datos genérica
-    df_result["amount"] = pd.to_numeric(df_result["amount"], errors="coerce")
-    df_result = df_result.dropna(subset=["amount"])
+    # Crear DataFrame final consolidado
+    df_result = pd.DataFrame(records)
 
-    # Acomodar/Consolidar los datos: Agrupación de control
-    consolidated_path = output_dir / "datos_procesados.xlsx"
-    df_result.to_excel(consolidated_path, index=False, sheet_name="Datos Extraídos")
+    # Exportar al Excel Unificado de Salida
+    consolidated_path = output_dir / "control_facturas.xlsx"
+    
+    # Si el archivo final ya existe, opcionalmente podríamos hacer un append, 
+    # pero para cumplir el requerimiento de "un solo clic", guardamos limpio el resultado actual:
+    df_result.to_excel(consolidated_path, index=False, sheet_name="Facturas Procesadas")
 
     return {
         "status": "success",
         "file_type_detected": suffix.upper().replace(".", ""),
         "rows_processed": len(df_result),
         "output_file": consolidated_path,
-        "total_amount": float(df_result["amount"].sum())
+        "total_amount": float(df_result["Monto Total"].sum())
     }
-
-
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        res = process_input_file(sys.argv[1])
-        print(f"Procesado con éxito: {res}")
