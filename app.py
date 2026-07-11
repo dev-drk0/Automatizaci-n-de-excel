@@ -202,17 +202,18 @@ class ReportApp:
 
             # Ahora mostramos solo el archivo consolidado final
             output_file_name = result["output_file"].name
+           # Modifica esta parte en app.py:
             self.preview.controls = [
                 ft.ListTile(
-                    leading=ft.Icon(ft.Icons.洗_FEED, color=ft.Colors.GREEN_800),
-                    title=ft.Text(f"Resultado: {output_file_name}"),
-                    subtitle=ft.Text(
-                        f"Tipo de origen: {result['file_type_detected']} | "
-                        f"Registros: {result['rows_processed']} | "
-                        f"Monto total: ${result['total_amount']:,.2f}"
-                    ),
-                )
-            ]
+                leading=ft.Icon(ft.Icons.FEED, color=ft.Colors.GREEN_800), # <-- Cambiado a ft.Icons.FEED
+             title=ft.Text(f"Resultado: {output_file_name}"),
+            subtitle=ft.Text(
+            f"Tipo de origen: {result['file_type_detected']} | "
+            f"Registros: {result['rows_processed']} | "
+            f"Monto total: ${result['total_amount']:,.2f}"
+                ),
+             )
+    ]
             self.page.update()
 
             await asyncio.sleep(0.8)
