@@ -97,29 +97,53 @@ def process_input_file(input_path: str | Path, output_dir: str | Path | None = N
     output_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = input_path.suffix.lower()
-    
-    # Lista donde acumularemos las filas del reporte
     records = []
 
-    # --- PROCESAMIENTO EXCLUSIVO EXCEL O PDF ---
     if suffix in [".xlsx", ".xls"]:
-        # Si suben un Excel, asumimos que es una lista previa que quieren validar/acomodar
+        # 1. Leer el Excel
         df = pd.read_excel(input_path)
-        df.columns = [c.strip().title() for c in df.columns]
         
-        # Estandarizar columnas requeridas
-        required = ["Proveedor", "Fecha", "Monto Total"]
-        for col in required:
-            if col not in df.columns:
-                df[col] = "No provisto" if col != "Monto Total" else 0.0
-                
-        # Limpiar montos
-        df["Monto Total"] = pd.to_numeric(df["Monto Total"], errors="coerce").fillna(0.0)
-        df["Archivo"] = input_path.name
-        records = df[["Archivo", "Proveedor", "Fecha", "Monto Total"]].to_dict(orient="records")
+        # Guardar una copia limpia de los nombres originales para no perder datos
+        original_columns = list(df.columns)
+        
+        # Estandarizar columnas a minúsculas y sin espacios para buscar coincidencias
+        normalized_cols = {c.lower().strip(): c for c in df.columns}
+        
+        # 2. MAPEO INTELIGENTE DE SINÓNIMOS (Para datasets de Kaggle o variantes)
+        synonyms_provider = ["proveedor", "autor", "titulo", "title", "vendor", "name", "nombre"]
+        synonyms_date = ["fecha", "date", "emision", "created_at"]
+        synonyms_amount = ["monto total", "precio", "total", "amount", "price", "neto", "importe"]
+        
+        # Detectar qué columna se parece más a lo que necesitamos
+        col_provider = next((normalized_cols[k] for k in normalized_cols if k in synonyms_provider), None)
+        col_date = next((normalized_cols[k] for k in normalized_cols if k in synonyms_date), None)
+        col_amount = next((normalized_cols[k] for k in normalized_cols if k in synonyms_amount), None)
+        
+        # 3. Extraer los datos adaptados
+        df_adapted = pd.DataFrame()
+        df_adapted["Archivo"] = [input_path.name] * len(df)
+        
+        # Asignar Proveedor/Autor/Título
+        if col_provider:
+            df_adapted["Proveedor"] = df[col_provider]
+        else:
+            df_adapted["Proveedor"] = "No provisto"
+            
+        # Asignar Fecha (si no existe, ponemos la fecha de hoy o "No provista")
+        if col_date:
+            df_adapted["Fecha"] = df[col_date]
+        else:
+            df_adapted["Fecha"] = "No provista"
+            
+        # Asignar Monto/Precio
+        if col_amount:
+            df_adapted["Monto Total"] = pd.to_numeric(df[col_amount], errors="coerce").fillna(0.0)
+        else:
+            df_adapted["Monto Total"] = 0.0
+            
+        records = df_adapted[["Archivo", "Proveedor", "Fecha", "Monto Total"]].to_dict(orient="records")
             
     elif suffix == ".pdf":
-        # Extraer los datos de la factura con las reglas inteligentes
         invoice_data = extract_invoice_data(input_path)
         records.append(invoice_data)
         
@@ -129,15 +153,9 @@ def process_input_file(input_path: str | Path, output_dir: str | Path | None = N
     if not records:
         raise ValueError("No se pudieron extraer datos válidos del archivo.")
 
-    # Crear DataFrame final consolidado
     df_result = pd.DataFrame(records)
-
-    # Exportar al Excel Unificado de Salida
     consolidated_path = output_dir / "control_facturas.xlsx"
-    
-    # Si el archivo final ya existe, opcionalmente podríamos hacer un append, 
-    # pero para cumplir el requerimiento de "un solo clic", guardamos limpio el resultado actual:
-    df_result.to_excel(consolidated_path, index=False, sheet_name="Facturas Procesadas")
+    df_result.to_excel(consolidated_path, index=False, sheet_name="Datos Procesados")
 
     return {
         "status": "success",
