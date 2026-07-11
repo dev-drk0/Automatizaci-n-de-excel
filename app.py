@@ -2,29 +2,26 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-
 import flet as ft
 
-from reporte import build_report
+# Importamos la nueva función lógica
+from reporte import process_input_file
 
 
 class ReportApp:
     def __init__(self, page: ft.Page):
         self.page = page
-        self.page.title = "Automatización de Reportes"
+        self.page.title = "Procesador de Archivos (Excel/PDF)"
         self.page.vertical_alignment = ft.MainAxisAlignment.CENTER
         self.page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
         self.page.padding = 30
         
-        # Color de fondo moderno (Gris claro)
         self.page.bgcolor = "#F5F7FB"
         self.page.theme = ft.Theme(color_scheme_seed="#4C78A8")
 
-        # Registrar FilePicker como servicio
         self.picker = ft.FilePicker()
         self.page.services.append(self.picker)
 
-        # Componentes de UI
         self.file_path = ft.Text(
             value="Ningún archivo seleccionado",
             color="#4C78A8",
@@ -32,11 +29,10 @@ class ReportApp:
         )
 
         self.status = ft.Text(
-            value="Listo para generar el reporte",
+            value="Listo para procesar el archivo de entrada",
             color=ft.Colors.GREY_700,
         )
 
-        # 1. ProgressBar configurada correctamente
         self.progress_bar = ft.ProgressBar(
             value=0,
             visible=False,
@@ -45,14 +41,12 @@ class ReportApp:
             border_radius=10,
         )
 
-        # 2. ProgressRing para carga simultánea
         self.progress_ring = ft.ProgressRing(
             visible=False,
             width=28,
             height=28,
         )
 
-        # 3. Contenedor dinámico para los resultados
         self.preview = ft.Column(
             spacing=8,
             horizontal_alignment=ft.CrossAxisAlignment.START,
@@ -61,22 +55,20 @@ class ReportApp:
         self.selected_file_path: str | None = None
 
         # --- CONSTRUCCIÓN DE LA INTERFAZ ---
-        
-        # Encabezado del Dashboard
         header = ft.Column(
             [
                 ft.Icon(
-                    ft.Icons.ANALYTICS,
+                    ft.Icons.FILE_PRESENT,
                     size=56,
-                    color=ft.Colors.BLUE,
+                    color=ft.Colors.BLUE_ACCENT,
                 ),
                 ft.Text(
-                    "Automatización de Reportes",
+                    "Extractor & Consolidador de Datos",
                     size=30,
                     weight=ft.FontWeight.BOLD,
                 ),
                 ft.Text(
-                    "Convierte un Excel en múltiples entregables automáticamente.",
+                    "Sube un archivo Excel, CSV o PDF para estructurar y acomodar sus datos automáticamente.",
                     color=ft.Colors.GREY_700,
                 ),
             ],
@@ -84,12 +76,10 @@ class ReportApp:
             spacing=10,
         )
 
-        # Tarjeta Principal (Dashboard Blanco con Sombras)
         dashboard_card = ft.Container(
             content=ft.Column(
                 [
-                    # Sección Selección de Archivo
-                    ft.Text("📂 Archivo", weight=ft.FontWeight.BOLD, size=16),
+                    ft.Text("📂 Archivo de Origen", weight=ft.FontWeight.BOLD, size=16),
                     ft.Container(
                         content=self.file_path,
                         bgcolor=ft.Colors.GREY_50,
@@ -103,15 +93,14 @@ class ReportApp:
                         ),
                     ),
                     ft.FilledButton(
-                        "Seleccionar archivo de ventas",
-                        icon=ft.Icons.FOLDER_OPEN,
+                        "Seleccionar Excel o PDF",
+                        icon=ft.Icons.FILE_UPLOAD,
                         on_click=self.pick_file,
                     ),
                     
                     ft.Divider(height=30, color=ft.Colors.GREY_200),
 
-                    # Sección Generación y Progreso
-                    ft.Text("⚙️ Generación", weight=ft.FontWeight.BOLD, size=16),
+                    ft.Text("⚙️ Acciones", weight=ft.FontWeight.BOLD, size=16),
                     self.status,
                     ft.Row(
                         [self.progress_ring, self.progress_bar],
@@ -119,15 +108,14 @@ class ReportApp:
                         spacing=15,
                     ),
                     ft.FilledButton(
-                        "Generar reporte",
-                        icon=ft.Icons.PLAY_ARROW,
-                        on_click=self.generate_report,
+                        "Procesar y Acomodar",
+                        icon=ft.Icons.BOLT,
+                        on_click=self.process_file_data,
                     ),
 
                     ft.Divider(height=30, color=ft.Colors.GREY_200),
 
-                    # Sección Resultados Finales
-                    ft.Text("📁 Archivos generados", weight=ft.FontWeight.BOLD, size=16),
+                    ft.Text("📊 Salida Estructurada", weight=ft.FontWeight.BOLD, size=16),
                     self.preview,
                 ],
                 spacing=15,
@@ -144,7 +132,6 @@ class ReportApp:
             ),
         )
 
-        # Renderizado final en la página
         self.page.add(
             ft.Column(
                 [header, ft.Divider(height=10, color=ft.Colors.TRANSPARENT), dashboard_card],
@@ -156,94 +143,78 @@ class ReportApp:
     async def pick_file(self, e):
         try:
             files = await self.picker.pick_files(
-                dialog_title="Selecciona un archivo de ventas",
+                dialog_title="Selecciona un archivo origen",
                 file_type=ft.FilePickerFileType.CUSTOM,
-                allowed_extensions=["xlsx", "xls", "csv"],
+                # Agregamos 'pdf' a las extensiones permitidas
+                allowed_extensions=["xlsx", "xls", "csv", "pdf"],
                 allow_multiple=False,
             )
 
             if files:
                 selected = Path(files[0].path)
                 self.selected_file_path = str(selected)
-
-                self.file_path.value = f"Archivo: {selected.name}"
+                self.file_path.value = f"Archivo detectado: {selected.name}"
                 self.file_path.italic = False
-                self.status.value = "Archivo cargado. Puedes generar el reporte."
+                self.status.value = "Archivo cargado. Listo para extraer datos."
             else:
                 self.status.value = "No se seleccionó ningún archivo."
 
             self.page.update()
-
         except Exception as exc:
-            self.status.value = f"No se pudo abrir el selector: {exc}"
+            self.status.value = f"Error al abrir el selector: {exc}"
             self.page.update()
 
-    async def generate_report(self, e):
+    async def process_file_data(self, e):
         if not self.selected_file_path:
-            self.status.value = "Selecciona primero un archivo de ventas."
+            self.status.value = "Por favor, selecciona primero un archivo válido."
             self.status.color = ft.Colors.RED_600
             self.page.update()
             return
 
-        # Mostrar e iniciar las barras de progreso
         self.progress_bar.visible = True
         self.progress_ring.visible = True
-        self.progress_bar.value = 0.10
-        self.status.value = "Iniciando procesamiento..."
+        self.progress_bar.value = 0.20
+        self.status.value = "Analizando el tipo de archivo..."
         self.status.color = ft.Colors.BLUE_600
         self.preview.controls.clear() 
         self.page.update()
 
         try:
-            # Actualizaciones visuales ordenadas de progreso durante el proceso
             await asyncio.sleep(0.3)
-            self.status.value = "Leyendo Excel y procesando datos..."
-            self.progress_bar.value = 0.30
+            self.progress_bar.value = 0.50
+            self.status.value = "Extrayendo y mapeando estructuras..."
             self.page.update()
 
-            # Ejecuta build_report() en un hilo en segundo plano
+            # Ejecutamos la nueva función del backend
             result = await asyncio.to_thread(
-                build_report,
+                process_input_file,
                 self.selected_file_path,
             )
 
-            self.status.value = "Generando gráfica y PDF..."
-            self.progress_bar.value = 0.55
+            self.progress_bar.value = 0.90
+            self.status.value = "Escribiendo archivo de salida unificado..."
             self.page.update()
             await asyncio.sleep(0.2)
 
-            self.status.value = "Redactando cuerpo de correo electrónico..."
-            self.progress_bar.value = 0.80
-            self.page.update()
-            await asyncio.sleep(0.2)
-
-            # Carga exitosa de resultados
             self.progress_bar.value = 1.0
-            self.status.value = "¡Reporte generado con éxito!"
+            self.status.value = "¡Datos acomodados con éxito!"
             self.status.color = ft.Colors.GREEN_600
 
-            # Inyección de la lista limpia de archivos generados con iconos a color
+            # Ahora mostramos solo el archivo consolidado final
+            output_file_name = result["output_file"].name
             self.preview.controls = [
                 ft.ListTile(
-                    leading=ft.Icon(ft.Icons.TABLE_VIEW, color=ft.Colors.GREEN_700),
-                    title=ft.Text(result["excel_path"].name),
-                ),
-                ft.ListTile(
-                    leading=ft.Icon(ft.Icons.INSERT_CHART, color=ft.Colors.BLUE_700),
-                    title=ft.Text(result["chart_path"].name),
-                ),
-                ft.ListTile(
-                    leading=ft.Icon(ft.Icons.PICTURE_AS_PDF, color=ft.Colors.RED_700),
-                    title=ft.Text(result["pdf_path"].name),
-                ),
-                ft.ListTile(
-                    leading=ft.Icon(ft.Icons.MAIL, color=ft.Colors.AMBER_700),
-                    title=ft.Text(result["email_path"].name),
-                ),
+                    leading=ft.Icon(ft.Icons.洗_FEED, color=ft.Colors.GREEN_800),
+                    title=ft.Text(f"Resultado: {output_file_name}"),
+                    subtitle=ft.Text(
+                        f"Tipo de origen: {result['file_type_detected']} | "
+                        f"Registros: {result['rows_processed']} | "
+                        f"Monto total: ${result['total_amount']:,.2f}"
+                    ),
+                )
             ]
             self.page.update()
 
-            # Desvanecer los cargadores después de terminar
             await asyncio.sleep(0.8)
             self.progress_bar.visible = False
             self.progress_ring.visible = False
@@ -252,7 +223,7 @@ class ReportApp:
         except Exception as exc:
             self.progress_bar.visible = False
             self.progress_ring.visible = False
-            self.status.value = f"Error: {exc}"
+            self.status.value = f"Error en procesamiento: {exc}"
             self.status.color = ft.Colors.RED_600
             self.page.update()
 
@@ -262,4 +233,4 @@ async def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.run(main)
+    ft.run(target=main)

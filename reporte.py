@@ -1,19 +1,48 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Dict, Any
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import pandas as pd
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
+from pypdf import PdfReader
 
 
-def build_report(input_path: str | Path, output_dir: str | Path | None = None) -> Dict[str, Any]:
+def extract_data_from_pdf(pdf_path: Path) -> pd.DataFrame:
+    """
+    Lee un archivo PDF y extrae los datos de texto de forma estructurada.
+    Modifica las expresiones regulares según el formato real de tus PDFs.
+    """
+    reader = PdfReader(pdf_path)
+    extracted_records = []
+
+    for page in reader.pages:
+        text = page.extract_text()
+        if not text:
+            continue
+            
+        # Ejemplo de procesamiento línea por línea
+        # Supongamos que buscamos líneas con un producto y un monto (ej: "Producto A - $1,200")
+        lines = text.split("\n")
+        for line in lines:
+            # Una expresión regular simple para buscar texto seguido de números/precios
+            match = re.search(r"([\w\s]+?)\s*[\$-]?\s*([\d\.,]+)", line)
+            if match:
+                product = match.group(1).strip()
+                amount_str = match.group(2).replace(",", "")
+                try:
+                    amount = float(amount_str)
+                    extracted_records.append({"product": product, "amount": amount, "source_type": "PDF"})
+                except ValueError:
+                    continue
+
+    if not extracted_records:
+        # Fallback por si el PDF es plano o tiene otro formato
+        return pd.DataFrame(columns=["product", "amount", "source_type"])
+        
+    return pd.DataFrame(extracted_records)
+
+
+def process_input_file(input_path: str | Path, output_dir: str | Path | None = None) -> Dict[str, Any]:
     base_dir = Path(__file__).resolve().parent
     input_path = Path(input_path)
     if not input_path.is_absolute():
@@ -24,88 +53,54 @@ def build_report(input_path: str | Path, output_dir: str | Path | None = None) -
         output_dir = base_dir / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if input_path.suffix.lower() == ".xlsx":
+    suffix = input_path.suffix.lower()
+    df_result = pd.DataFrame()
+
+    # --- PROCESAMIENTO DEPENDIENDO DEL TIPO ---
+    if suffix in [".xlsx", ".xls"]:
         df = pd.read_excel(input_path)
-    else:
+        # Intentar estandarizar columnas si vienen con nombres distintos
+        df.columns = [c.lower().strip() for c in df.columns]
+        
+        if "amount" in df.columns and "product" in df.columns:
+            df_result = df[["product", "amount"]].copy()
+            df_result["source_type"] = "Excel"
+            
+    elif suffix == ".csv":
         df = pd.read_csv(input_path)
+        df.columns = [c.lower().strip() for c in df.columns]
+        if "amount" in df.columns and "product" in df.columns:
+            df_result = df[["product", "amount"]].copy()
+            df_result["source_type"] = "CSV"
+            
+    elif suffix == ".pdf":
+        df_result = extract_data_from_pdf(input_path)
+        
+    else:
+        raise ValueError(format(f"Formato de archivo no soportado: {suffix}"))
 
-    if "amount" not in df.columns:
-        raise ValueError("El archivo debe incluir una columna 'amount'.")
+    if df_result.empty:
+        raise ValueError("No se pudieron extraer datos válidos del archivo proporcionado.")
 
-    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
-    df = df.dropna(subset=["amount"])
+    # Limpieza de datos genérica
+    df_result["amount"] = pd.to_numeric(df_result["amount"], errors="coerce")
+    df_result = df_result.dropna(subset=["amount"])
 
-    summary = {
-        "total_sales": float(df["amount"].sum()),
-        "average_sale": float(df["amount"].mean()),
-        "transactions": int(len(df)),
-    }
-
-    excel_path = output_dir / "reporte_ventas.xlsx"
-    chart_path = output_dir / "ventas_por_producto.png"
-    pdf_path = output_dir / "reporte_ventas.pdf"
-    email_path = output_dir / "correo.txt"
-
-    sales_by_product = df.groupby("product", as_index=False)["amount"].sum().sort_values("amount", ascending=False)
-    sales_by_product.to_excel(excel_path, index=False, sheet_name="Ventas")
-
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.bar(sales_by_product["product"], sales_by_product["amount"], color="#4C78A8")
-    ax.set_title("Ventas por producto")
-    ax.set_ylabel("Monto")
-    ax.tick_params(axis="x", rotation=20)
-    fig.tight_layout()
-    fig.savefig(chart_path, dpi=150)
-    plt.close(fig)
-
-    doc = SimpleDocTemplate(str(pdf_path), pagesize=letter)
-    styles = getSampleStyleSheet()
-    story = []
-    story.append(Paragraph("Reporte de ventas", styles["Title"]))
-    story.append(Spacer(1, 12))
-    story.append(Paragraph(f"Ventas totales: ${summary['total_sales']:,.2f}", styles["Heading2"]))
-    story.append(Paragraph(f"Promedio por venta: ${summary['average_sale']:,.2f}", styles["BodyText"]))
-    story.append(Paragraph(f"Transacciones: {summary['transactions']}", styles["BodyText"]))
-    story.append(Spacer(1, 12))
-
-    data = [["Producto", "Monto"]]
-    for _, row in sales_by_product.iterrows():
-        data.append([row["product"], f"${row['amount']:,.2f}"])
-
-    table = Table(data, repeatRows=1)
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4C78A8")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("PADDING", (0, 0), (-1, -1), 6),
-    ]))
-    story.append(table)
-    story.append(Spacer(1, 12))
-    story.append(Paragraph("Adjunto gráfico resumen del desempeño.", styles["BodyText"]))
-    doc.build(story)
-
-    email_body = (
-        "Asunto: Reporte de ventas listo\n\n"
-        "Hola,\n\n"
-        "Adjunto el reporte generado automáticamente con Excel, gráfico y PDF.\n"
-        f"Ventas totales: ${summary['total_sales']:,.2f}\n"
-        f"Transacciones: {summary['transactions']}\n\n"
-        "Saludos,"
-    )
-    email_path.write_text(email_body, encoding="utf-8")
+    # Acomodar/Consolidar los datos: Agrupación de control
+    consolidated_path = output_dir / "datos_procesados.xlsx"
+    df_result.to_excel(consolidated_path, index=False, sheet_name="Datos Extraídos")
 
     return {
-        "excel_path": excel_path,
-        "chart_path": chart_path,
-        "pdf_path": pdf_path,
-        "email_path": email_path,
-        "summary": summary,
+        "status": "success",
+        "file_type_detected": suffix.upper().replace(".", ""),
+        "rows_processed": len(df_result),
+        "output_file": consolidated_path,
+        "total_amount": float(df_result["amount"].sum())
     }
 
 
 if __name__ == "__main__":
     import sys
-
-    input_file = sys.argv[1] if len(sys.argv) > 1 else "sample_sales.csv"
-    build_report(input_file)
-    print("Reporte generado correctamente.")
+    if len(sys.argv) > 1:
+        res = process_input_file(sys.argv[1])
+        print(f"Procesado con éxito: {res}")
