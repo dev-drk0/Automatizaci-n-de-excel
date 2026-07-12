@@ -111,7 +111,7 @@ def process_input_file(input_path: str | Path, output_dir: str | Path | None = N
         
         # 2. MAPEO INTELIGENTE DE SINÓNIMOS (Para datasets de Kaggle o variantes)
         synonyms_provider = ["proveedor", "autor", "titulo", "title", "vendor", "name", "nombre"]
-        synonyms_date = ["fecha", "date", "emision", "created_at"]
+        synonyms_date = ["fecha", "date", "emision", "created_at", "Date"]
         synonyms_amount = ["monto total", "precio", "total", "amount", "price", "neto", "importe"]
         
         # Detectar qué columna se parece más a lo que necesitamos
