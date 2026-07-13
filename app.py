@@ -51,7 +51,6 @@ class ReportApp:
             horizontal_alignment=ft.CrossAxisAlignment.START,
         )
 
-        # Aquí guardaremos la lista de rutas de archivos seleccionados
         self.selected_files_paths: list[str] = []
 
         # --- CONSTRUCCIÓN DE LA INTERFAZ ---
@@ -68,7 +67,7 @@ class ReportApp:
                     weight=ft.FontWeight.BOLD,
                 ),
                 ft.Text(
-                    "Sube uno o múltiples PDFs a la vez para consolidar montos, proveedores y fechas en segundos.",
+                    "Sube tus PDFs a la vez para consolidar montos, generar gráficas y armar reportes únicos.",
                     color=ft.Colors.GREY_700,
                 ),
             ],
@@ -142,7 +141,6 @@ class ReportApp:
 
     async def pick_file(self, e):
         try:
-            # ACTIVAMOS allow_multiple=True
             files = await self.picker.pick_files(
                 dialog_title="Selecciona una o más facturas",
                 file_type=ft.FilePickerFileType.CUSTOM,
@@ -182,17 +180,16 @@ class ReportApp:
         try:
             await asyncio.sleep(0.4)
             self.progress_bar.value = 0.60
-            self.status.value = "Mapeando estructuras y sumando montos internos..."
+            self.status.value = "Mapeando estructuras y aplicando estilos estéticos..."
             self.page.update()
 
-            # Enviamos TODA la lista de archivos a procesar juntos
             result = await asyncio.to_thread(
                 process_multiple_files,
                 self.selected_files_paths,
             )
 
             self.progress_bar.value = 0.90
-            self.status.value = "Generando libro maestro de Excel..."
+            self.status.value = "Inyectando gráficas nativas en Excel..."
             self.page.update()
             await asyncio.sleep(0.3)
 
@@ -204,10 +201,10 @@ class ReportApp:
             self.preview.controls = [
                 ft.ListTile(
                     leading=ft.Icon(ft.Icons.DATA_EXPLORATION, color=ft.Colors.GREEN_800, size=32),
-                    title=ft.Text(f"Archivo de Control: {output_file_name}", weight=ft.FontWeight.BOLD),
+                    title=ft.Text(f"Archivo único: {output_file_name}", weight=ft.FontWeight.BOLD),
                     subtitle=ft.Text(
-                        f"Archivos leídos: {result['rows_processed']} de {result['total_files']}\n"
-                        f"Suma Total de Facturación: ${result['grand_total']:,.2f}"
+                        f"Reportes leídos con éxito: {result['rows_processed']}\n"
+                        f"Suma Total Calculada: ${result['grand_total']:,.2f}"
                     ),
                 )
             ]
