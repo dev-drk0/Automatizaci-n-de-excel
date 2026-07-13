@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-
 import flet as ft
 
-from reporte import process_input_file
+from reporte import process_multiple_files
 
 
 class ReportApp:
@@ -16,15 +15,12 @@ class ReportApp:
         self.page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
         self.page.padding = 30
         
-        # Diseño moderno y limpio
         self.page.bgcolor = "#F5F7FB"
         self.page.theme = ft.Theme(color_scheme_seed="#4C78A8")
 
-        # Registrar FilePicker como servicio
         self.picker = ft.FilePicker()
         self.page.services.append(self.picker)
 
-        # Componentes de la Interfaz de Usuario
         self.file_path = ft.Text(
             value="Ningún archivo seleccionado",
             color="#4C78A8",
@@ -32,7 +28,7 @@ class ReportApp:
         )
 
         self.status = ft.Text(
-            value="Listo para procesar el archivo de entrada",
+            value="Listo para procesar lotes de archivos",
             color=ft.Colors.GREY_700,
         )
 
@@ -55,11 +51,10 @@ class ReportApp:
             horizontal_alignment=ft.CrossAxisAlignment.START,
         )
 
-        self.selected_file_path: str | None = None
+        # Aquí guardaremos la lista de rutas de archivos seleccionados
+        self.selected_files_paths: list[str] = []
 
         # --- CONSTRUCCIÓN DE LA INTERFAZ ---
-        
-        # Encabezado del Dashboard
         header = ft.Column(
             [
                 ft.Icon(
@@ -73,7 +68,7 @@ class ReportApp:
                     weight=ft.FontWeight.BOLD,
                 ),
                 ft.Text(
-                    "Extrae automáticamente Proveedor, Fecha y Monto de tus PDFs al Excel de Control.",
+                    "Sube uno o múltiples PDFs a la vez para consolidar montos, proveedores y fechas en segundos.",
                     color=ft.Colors.GREY_700,
                 ),
             ],
@@ -81,12 +76,10 @@ class ReportApp:
             spacing=10,
         )
 
-        # Tarjeta Principal (Dashboard Blanco con Sombras)
         dashboard_card = ft.Container(
             content=ft.Column(
                 [
-                    # Sección Selección de Archivo
-                    ft.Text("📂 Archivo de Origen", weight=ft.FontWeight.BOLD, size=16),
+                    ft.Text("📂 Archivos en Cola", weight=ft.FontWeight.BOLD, size=16),
                     ft.Container(
                         content=self.file_path,
                         bgcolor=ft.Colors.GREY_50,
@@ -100,15 +93,14 @@ class ReportApp:
                         ),
                     ),
                     ft.FilledButton(
-                        "Seleccionar Excel o PDF",
+                        "Seleccionar archivos (Soporta Múltiples)",
                         icon=ft.Icons.FILE_UPLOAD,
                         on_click=self.pick_file,
                     ),
                     
                     ft.Divider(height=30, color=ft.Colors.GREY_200),
 
-                    # Sección Generación y Progreso
-                    ft.Text("⚙️ Acciones", weight=ft.FontWeight.BOLD, size=16),
+                    ft.Text("⚙️ Acciones en lote", weight=ft.FontWeight.BOLD, size=16),
                     self.status,
                     ft.Row(
                         [self.progress_ring, self.progress_bar],
@@ -116,15 +108,14 @@ class ReportApp:
                         spacing=15,
                     ),
                     ft.FilledButton(
-                        "Procesar y Acomodar",
+                        "Procesar Todo y Consolidar",
                         icon=ft.Icons.BOLT,
                         on_click=self.process_file_data,
                     ),
 
                     ft.Divider(height=30, color=ft.Colors.GREY_200),
 
-                    # Sección Resultados Finales
-                    ft.Text("📊 Salida Estructurada", weight=ft.FontWeight.BOLD, size=16),
+                    ft.Text("📊 Resumen del Lote", weight=ft.FontWeight.BOLD, size=16),
                     self.preview,
                 ],
                 spacing=15,
@@ -141,7 +132,6 @@ class ReportApp:
             ),
         )
 
-        # Renderizado final en la página
         self.page.add(
             ft.Column(
                 [header, ft.Divider(height=10, color=ft.Colors.TRANSPARENT), dashboard_card],
@@ -152,20 +142,20 @@ class ReportApp:
 
     async def pick_file(self, e):
         try:
-            # Configurado exclusivamente para PDF y formatos Excel modernos
+            # ACTIVAMOS allow_multiple=True
             files = await self.picker.pick_files(
-                dialog_title="Selecciona una factura en PDF o un Excel",
+                dialog_title="Selecciona una o más facturas",
                 file_type=ft.FilePickerFileType.CUSTOM,
                 allowed_extensions=["pdf", "xlsx", "xls"],
-                allow_multiple=False,
+                allow_multiple=True,
             )
 
             if files:
-                selected = Path(files[0].path)
-                self.selected_file_path = str(selected)
-                self.file_path.value = f"Archivo detectado: {selected.name}"
+                self.selected_files_paths = [f.path for f in files]
+                cant = len(files)
+                self.file_path.value = f"{cant} archivo(s) seleccionados para procesar."
                 self.file_path.italic = False
-                self.status.value = "Archivo cargado. Listo para extraer datos."
+                self.status.value = "Lote cargado. Listo para extraer datos masivos."
             else:
                 self.status.value = "No se seleccionó ningún archivo."
 
@@ -175,60 +165,55 @@ class ReportApp:
             self.page.update()
 
     async def process_file_data(self, e):
-        if not self.selected_file_path:
-            self.status.value = "Por favor, selecciona primero un archivo válido."
+        if not self.selected_files_paths:
+            self.status.value = "Por favor, selecciona al menos un archivo."
             self.status.color = ft.Colors.RED_600
             self.page.update()
             return
 
-        # Inicialización de barras visuales de carga
         self.progress_bar.visible = True
         self.progress_ring.visible = True
-        self.progress_bar.value = 0.20
-        self.status.value = "Analizando el tipo de archivo..."
+        self.progress_bar.value = 0.15
+        self.status.value = "Iniciando lectura de documentos masivos..."
         self.status.color = ft.Colors.BLUE_600
         self.preview.controls.clear() 
         self.page.update()
 
         try:
-            await asyncio.sleep(0.3)
-            self.progress_bar.value = 0.50
-            self.status.value = "Extrayendo y mapeando estructuras..."
+            await asyncio.sleep(0.4)
+            self.progress_bar.value = 0.60
+            self.status.value = "Mapeando estructuras y sumando montos internos..."
             self.page.update()
 
-            # Llama a la lógica inteligente en segundo plano sin congelar la UI
+            # Enviamos TODA la lista de archivos a procesar juntos
             result = await asyncio.to_thread(
-                process_input_file,
-                self.selected_file_path,
+                process_multiple_files,
+                self.selected_files_paths,
             )
 
             self.progress_bar.value = 0.90
-            self.status.value = "Escribiendo archivo de salida unificado..."
+            self.status.value = "Generando libro maestro de Excel..."
             self.page.update()
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.3)
 
-            # Carga completada con éxito
             self.progress_bar.value = 1.0
-            self.status.value = "¡Datos acomodados con éxito!"
+            self.status.value = "¡Consolidación masiva completada!"
             self.status.color = ft.Colors.GREEN_600
 
-            # Renderizar el resultado en la lista con icono limpio (ft.Icons.FEED)
             output_file_name = result["output_file"].name
             self.preview.controls = [
                 ft.ListTile(
-                    leading=ft.Icon(ft.Icons.FEED, color=ft.Colors.GREEN_800),
-                    title=ft.Text(f"Resultado: {output_file_name}"),
+                    leading=ft.Icon(ft.Icons.DATA_EXPLORATION, color=ft.Colors.GREEN_800, size=32),
+                    title=ft.Text(f"Archivo de Control: {output_file_name}", weight=ft.FontWeight.BOLD),
                     subtitle=ft.Text(
-                        f"Tipo de origen: {result['file_type_detected']} | "
-                        f"Registros: {result['rows_processed']} | "
-                        f"Monto total: ${result['total_amount']:,.2f}"
+                        f"Archivos leídos: {result['rows_processed']} de {result['total_files']}\n"
+                        f"Suma Total de Facturación: ${result['grand_total']:,.2f}"
                     ),
                 )
             ]
             self.page.update()
 
-            # Desvanecer los indicadores de carga tras terminar
-            await asyncio.sleep(0.8)
+            await asyncio.sleep(1.0)
             self.progress_bar.visible = False
             self.progress_ring.visible = False
             self.page.update()
