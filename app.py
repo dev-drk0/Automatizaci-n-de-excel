@@ -20,15 +20,11 @@ class ReportApp:
         self.page.bgcolor = "#F5F7FB"
         self.page.theme = ft.Theme(color_scheme_seed="#4C78A8")
 
-        # --- REGISTRAR LOS PICKERS COMO SERVICIOS (Solución al Timeout) ---
+        # --- REGISTRAR LOS PICKERS COMO SERVICIOS ---
         self.file_picker_open = ft.FilePicker()
         self.file_picker_save = ft.FilePicker()
         self.page.services.append(self.file_picker_open)
         self.page.services.append(self.file_picker_save)
-
-        # Asignar los eventos
-        self.file_picker_open.on_result = self.on_files_selected
-        self.file_picker_save.on_result = self.on_save_location_selected
 
         # Componentes de UI
         self.file_path = ft.Text(
@@ -131,25 +127,28 @@ class ReportApp:
 
     async def pick_files_click(self, e):
         try:
-            await self.file_picker_open.pick_files(
+            # En modo await directo, esto devuelve una lista de archivos seleccionados
+            files_list = await self.file_picker_open.pick_files(
                 dialog_title="Selecciona facturas en PDF",
                 file_type=ft.FilePickerFileType.CUSTOM,
                 allowed_extensions=["pdf"],
                 allow_multiple=True
             )
+            
+            # Comprobamos directamente si la lista no está vacía
+            if files_list:
+                self.selected_files_paths = [f.path for f in files_list]
+                self.file_path.value = f"{len(files_list)} factura(s) seleccionada(s)."
+                self.file_path.italic = False
+                self.status.value = "Lote cargado. Listo para extraer."
+            else:
+                self.status.value = "Selección cancelada."
+            
+            self.page.update()
+            
         except Exception as exc:
             self.status.value = f"Error al abrir el selector: {exc}"
             self.page.update()
-
-    def on_files_selected(self, e: ft.FilePickerResultEvent):
-        if e.files:
-            self.selected_files_paths = [f.path for f in e.files]
-            self.file_path.value = f"{len(e.files)} factura(s) seleccionada(s)."
-            self.file_path.italic = False
-            self.status.value = "Lote cargado. Listo para extraer."
-        else:
-            self.status.value = "Selección cancelada."
-        self.page.update()
 
     async def start_processing_click(self, e):
         if not self.selected_files_paths:
@@ -159,26 +158,32 @@ class ReportApp:
             return
 
         try:
-            await self.file_picker_save.save_file(
+            # En modo await directo, save_file devuelve un único objeto archivo o una lista (dependiendo de la versión de Flet)
+            # Para estar 100% seguros y evitar problemas de atributos, extraemos la propiedad path dinámicamente.
+            result = await self.file_picker_save.save_file(
                 dialog_title="¿Dónde deseas guardar tu reporte de Excel?",
                 file_name="control_facturas.xlsx",
                 file_type=ft.FilePickerFileType.CUSTOM,
                 allowed_extensions=["xlsx"]
             )
+            
+            if not result:
+                self.status.value = "Exportación cancelada por el usuario."
+                self.page.update()
+                return
+
+            # Flet puede devolver el objeto directamente o dentro de una lista de 1 elemento
+            save_path = result[0].path if isinstance(result, list) else getattr(result, "path", str(result))
+            
+            if save_path:
+                asyncio.create_task(self.run_extraction_async(save_path))
+            else:
+                self.status.value = "No se pudo determinar la ruta de guardado."
+                self.page.update()
+            
         except Exception as exc:
             self.status.value = f"Error al abrir guardado: {exc}"
             self.page.update()
-
-    def on_save_location_selected(self, e: ft.FilePickerResultEvent):
-        if not e.path:
-            self.status.value = "Exportación cancelada por el usuario."
-            self.page.update()
-            return
-
-        save_path = e.path
-        
-        # Usamos asyncio para manejar la ejecución del hilo de forma limpia como en tu ejemplo
-        asyncio.create_task(self.run_extraction_async(save_path))
 
     async def run_extraction_async(self, save_path: str):
         self.progress_bar.visible = True
