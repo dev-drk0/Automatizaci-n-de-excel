@@ -29,3 +29,7 @@ Resultados:
     - Ubuntu Linux
 
 automatiza el procesamiento de lotes de facturas y genera reportes administrativos en Excel de manera automática.
+
+![prevista](https://github.com/dev-drk0/Automatizaci-n-de-excel/blob/e67472ca318db2c354d724818fa30af1471d8218/images/prevista.png)
+
+![guardado](https://github.com/dev-drk0/Automatizaci-n-de-excel/blob/e67472ca318db2c354d724818fa30af1471d8218/images/Archivo_guardado.png)
