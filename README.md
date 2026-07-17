@@ -1,7 +1,4 @@
-# Automatizaci-n-de-excel
-Este repositorio fue creado publico con el fin de "probar" mi proyecto, en general y en terminos vagos mi programa toma reportes de ventas y genera reportes usando pandas
-
-Automatic Invoice Extractor
+# Sistema de automatización administrativa
 --------------------------------
 
 Tecnologías:
@@ -30,3 +27,5 @@ Resultados:
 - pruebas realizadas en:
     - macOS
     - Ubuntu Linux
+
+automatiza el procesamiento de lotes de facturas y genera reportes administrativos en Excel de manera automática.
